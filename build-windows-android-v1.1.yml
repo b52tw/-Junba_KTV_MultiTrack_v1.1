@@ -1,0 +1,140 @@
+name: Build Junba KTV v1.1 Windows Single + Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  attestations: write
+  id-token: write
+
+jobs:
+  validate-windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+          cache: 'pip'
+          cache-dependency-path: windows/requirements.txt
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pyinstaller
+      - name: Validate Windows source
+        shell: pwsh
+        run: |
+          python -m compileall -q main.py app tests
+          python -m pytest -q
+          python -c "from app.review import similarity; assert similarity('你好世界','你好，世界。') > .95"
+
+  windows-single:
+    needs: validate-windows
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          architecture: 'x64'
+          cache: 'pip'
+          cache-dependency-path: windows/requirements.txt
+      - name: Install
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+      - name: Build Single EXE only
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean packaging/single.spec
+          if (!(Test-Path 'dist/Junba_KTV_MultiTrack_v1.1.exe')) { throw 'Single EXE missing' }
+      - name: Optional Authenticode signing
+        shell: pwsh
+        env:
+          CERT_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASS: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERT_B64)) { Write-Host 'No Windows signing certificate; continue unsigned.'; exit 0 }
+          [IO.File]::WriteAllBytes('cert.pfx',[Convert]::FromBase64String($env:CERT_B64))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object {$_.FullName -match 'x64'} | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          & $signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f cert.pfx /p $env:CERT_PASS 'dist/Junba_KTV_MultiTrack_v1.1.exe'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows signing failed' }
+          & $signtool verify /pa /v 'dist/Junba_KTV_MultiTrack_v1.1.exe'
+          Remove-Item cert.pfx -Force
+      - name: Package Windows Single EXE
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item 'dist/Junba_KTV_MultiTrack_v1.1.exe' 'release/Junba_KTV_MultiTrack_v1.1.exe'
+          Get-FileHash 'release/Junba_KTV_MultiTrack_v1.1.exe' -Algorithm SHA256 | Format-List | Out-File 'release/Junba_KTV_MultiTrack_v1.1.sha256.txt'
+          Compress-Archive -Path 'release/Junba_KTV_MultiTrack_v1.1.exe','release/Junba_KTV_MultiTrack_v1.1.sha256.txt' -DestinationPath 'release/Junba-KTV-MultiTrack-v1.1-Single-EXE-Windows-x64.zip' -CompressionLevel Optimal
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Junba-KTV-MultiTrack-v1.1-Single-EXE-Windows-x64
+          path: windows/release/Junba-KTV-MultiTrack-v1.1-Single-EXE-Windows-x64.zip
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: windows/release/Junba-KTV-MultiTrack-v1.1-Single-EXE-Windows-x64.zip
+
+  android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build APK
+        shell: bash
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          mkdir -p android/release
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > android/junba-release.jks
+            gradle -p android :app:assembleRelease \
+              -PjunbaKeystore="$GITHUB_WORKSPACE/android/junba-release.jks" \
+              -PjunbaStorePassword="$KS_PASS" -PjunbaKeyAlias="$KEY_ALIAS" -PjunbaKeyPassword="$KEY_PASS"
+            cp android/app/build/outputs/apk/release/app-release.apk android/release/Junba-KTV-MultiTrack-v1.1.apk
+          else
+            echo "No Android release keystore configured; building installable debug APK."
+            gradle -p android :app:assembleDebug
+            cp android/app/build/outputs/apk/debug/app-debug.apk android/release/Junba-KTV-MultiTrack-v1.1.apk
+          fi
+          sha256sum android/release/Junba-KTV-MultiTrack-v1.1.apk > android/release/Junba-KTV-MultiTrack-v1.1.apk.sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Junba-KTV-MultiTrack-v1.1-Android-APK
+          path: android/release/*
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: android/release/Junba-KTV-MultiTrack-v1.1.apk

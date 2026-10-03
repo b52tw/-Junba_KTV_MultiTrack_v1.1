@@ -1,0 +1,16 @@
+Validation Report - Junba KTV MultiTrack v1.1
+
+Windows source:
+- Python compileall: PASS
+- pytest: 11 passed
+- review similarity tests: PASS
+- Windows packaging: GitHub Windows runner required for final EXE
+
+Android source:
+- Pure Kotlin models/review compile with kotlinc: PASS
+- Android SDK dependent compilation: delegated to GitHub Actions android-apk job
+- APK build workflow installs platform android-35/build-tools 35.0.0 and Gradle 8.9
+
+Packaging policy:
+- Windows: Single EXE only
+- Android: one APK artifact (signed release if signing secrets exist; otherwise debug APK)

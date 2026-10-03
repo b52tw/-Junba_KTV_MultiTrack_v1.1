@@ -1,0 +1,11 @@
+峻爸 KTV 多文字軌核對器 v1.1
+
+- Windows 封裝只保留 Single EXE，不再產 Portable。
+- 新增 Android 原生 APK 專案與 GitHub Actions 自動封裝。
+- 播放、暫停、停止改成獨立按鈕。
+- 新增 Gemini 順稿：保留時間軸，建立新文字軌。
+- 新增 Gemini 聽錄音智慧核對：可建立多人講者、時間軸核對軌。
+- 新增文字差異提示：綠 / 黃 / 紅三段式相似度。
+- KTV 全文反白與下方時間軸同步保留。
+- API Key 由使用者輸入，不內嵌在 EXE/APK。
+- Android 使用 SAF 開啟錄音與文字，不要求整顆儲存空間權限。

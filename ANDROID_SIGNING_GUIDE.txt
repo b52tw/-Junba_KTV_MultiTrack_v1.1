@@ -1,0 +1,12 @@
+Android 正式 APK 簽章（選用）
+
+若只是自己測試，不必設定，GitHub 會產生可安裝 debug APK。
+
+若要給其他人長期安裝/更新，請建立自己的 keystore，並把以下四個 GitHub Secrets 設好：
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+
+Workflow 偵測到 keystore 後會自動改建 release APK。
+請永久保存原 keystore；未來 App 更新必須使用同一把簽章金鑰。
